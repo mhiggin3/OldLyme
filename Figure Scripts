@@ -1,0 +1,71 @@
+# This contains scripts for the NMDS and PCA for the Old Lyme Manuscript
+
+library("ggplot2")
+#install.packages("ggfortify")
+library("ggfortify")
+#install.packages('SciViews')
+library("SciViews")
+library('dplyr') 
+
+#read in water quality data
+OldLymeData <- read.table(file="OldLymeMeta.txt", header=T)
+#pairwise plot of all water quality data
+pairs(OldLymeData)
+#remove unneccesary variable
+OLData <- select(OldLymeData, -c(Date,Location, DTW.ft., group, WellType,Cluster, NitrateLevel,  sobs, shannon, invsimpson, ORP))
+#OLData <- select(OldLymeData, -c(Date,Location, DTW.ft., group, WellType, NitrateLevel, sobs, shannon, invsimpson))
+
+dev.off()
+pca.OL <- princomp(OLData, cor=TRUE)
+names(pca.OL)
+summary(pca.OL)
+screeplot(pca.OL)
+plot(pca.OL)
+biplot(pca.OL)
+#Print variable loadings for all PCs
+pca.OL$loadings
+#Print variable scores for all PCs
+pca.OL$scores
+#assign shapes for well groups consistent with Map figure and NMDS
+well.group <- c("1"="16", "2"="15", "3"="17")
+
+
+#Make PCA plots using ggbiplot
+#install.packages("devtools")  # also need install ggplot2
+library("devtools")
+#install_github("vqv/ggbiplot", force = TRUE)
+
+library("ggbiplot")
+
+#Generate biplot with PC1 and PC2 and all variables
+g<-ggbiplot(pca.OL, obs.scale=1, var.scale=1, groups=NULL, ellipse=TRUE, circle=FALSE, varname.abbrev=FALSE)+theme_bw()
+g<-g+theme(panel.border = element_rect(colour = "black", fill=NA, size=.5),
+           panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+           axis.line = element_line(colour = "black"))
+#+xlim(-2,2.5)+ylim(-2,2.5)
+
+#also include rownames as labels (used geom_text below for more options)
+#g<-ggbiplot(pca.OL, obs.scale=1, var.scale=1, groups=NULL, ellipse=TRUE, circle=FALSE, labels=rownames(OLData))
+#g<-g+scale_color_discrete(name="")
+#Set shapes according to Well Location group
+g<-g+geom_point(aes(shape=as.character(OldLymeData$group)),size=5)
+#same as above but also color points according to nitrate level
+#g<-g+geom_point(aes(color=factor(OldLymeData$NitrateLevel), shape=as.character(OldLymeData$group)),  size=5)
+#Name and label legend according to well location on site
+g<-g+scale_shape_manual(values=as.integer(well.group),labels=c("Inland", "River", "Farm"), name="Well Location")
+#g<-g+scale_fill_discrete(labels=c("Inland", "River", "Farm"))
+#add dashed lined through the 0 horizontal and vertical intercepts
+g<-g+geom_hline(yintercept=0, linetype="dashed")+geom_vline(xintercept=0, linetype="dashed")
+#add well names as labels and offset them from the points
+g<-g+geom_text(label = rownames(OLData), hjust = 0, nudge_x = -.1, nudge_y = ifelse( rownames(OLData)=="DW-9G", 0.3, 0.2), size=4)+
+  scale_x_continuous(limits=c(-2, 3), expand = c(0, 0)) +
+  scale_y_continuous(limits=c(-1.99, 2.5), expand = c(0, 0))+
+  theme(axis.text=element_text(size=10), axis.title=element_text(size=12), plot.title = element_text(hjust = 0.5, size=24),
+      legend.title=element_text(size=10), legend.text=element_text(size=9))
+  
+#ifelse statement used to nudge "DW-9G" so that it does not overlap "DW-8O"
+#geom_text(size = 2, nudge_y = ifelse(rownames(OLData) == "DW-9G", 0, 0.1))
+#g<-opts(legend.discription="horiz",legend.posion="top")
+#Error: 'opts' is deprecated. Use 'theme' instead. (Defunct; last used in version 0.9.1) # opps! I got error
+ggsave(file="WaterBiPlot.png",width=8, height=7, units="in", dpi=300 )
+print(g)
