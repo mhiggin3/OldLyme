@@ -12,8 +12,7 @@ OldLymeData <- read.table(file="OldLymeMeta.txt", header=T)
 #pairwise plot of all water quality data
 pairs(OldLymeData)
 #remove unneccesary variable
-OLData <- select(OldLymeData, -c(Date,Location, DTW.ft., group, WellType,Cluster, NitrateLevel,  sobs, shannon, invsimpson, ORP))
-#OLData <- select(OldLymeData, -c(Date,Location, DTW.ft., group, WellType, NitrateLevel, sobs, shannon, invsimpson))
+OLData <- select(OldLymeData, -c(Date,Location, group, WellType,Cluster, NitrateLevel,  sobs, shannon, invsimpson))
 
 dev.off()
 pca.OL <- princomp(OLData, cor=TRUE)
@@ -69,3 +68,157 @@ g<-g+geom_text(label = rownames(OLData), hjust = 0, nudge_x = -.1, nudge_y = ife
 #Error: 'opts' is deprecated. Use 'theme' instead. (Defunct; last used in version 0.9.1) # opps! I got error
 ggsave(file="WaterBiPlot.png",width=8, height=7, units="in", dpi=300 )
 print(g)
+
+
+Mothur Data Analysis
+
+library(ggplot2)
+library(vegan)
+library(ecodist)
+library(RColorBrewer)
+library(dplyr)
+library(indicspecies)
+library(tibble)
+
+parseDistanceDF = function(phylip_file) {
+  # Read the first line of the phylip file to find out how many sequences/samples it contains
+  temp_connection = file(phylip_file, 'r')
+  len = readLines(temp_connection, n=1)
+  len = as.numeric(len)
+  len = len +1
+  close(temp_connection)
+  
+  
+  phylip_data = read.table(phylip_file, fill=T, row.names=1, skip=1, col.names=1:len)
+  colnames(phylip_data) <- row.names(phylip_data)
+  return(phylip_data)
+}
+
+##### Input data
+
+samples <- read.table(file="OldLyme.sample.txt", header=T)
+env <- read.table(file="OldLyme.env.txt", header=T)
+alpha <- read.table(file="../OldLyme.trim.contigs.good.unique.good.filter.precluster.pick.pick.opti_mcc.groups.ave-std.summary", header=T)
+
+otu <- read.delim(file="../OldLyme.trim.contigs.good.unique.good.filter.precluster.pick.pick.pick.opti_mcc.0.03.subsample.shared", header=T, row.names = 2)
+
+otu <- select(otu, -label, -numOtus)
+
+maxab <- apply(otu, 2, max)
+n1 <- names(which(maxab < 10))
+otu.ab <- otu[,-which(names(otu) %in% n1)]
+
+#splits out taxa string into separate columns
+taxa <- read.table(textConnection(gsub("\\(.+?\\);", "\t", readLines("../RobbinsHigginsOldLymeNoNeg2.trim.contigs.good.unique.good.filter.precluster.pick.pick.pick.opti_mcc.0.03.cons.taxonomy"))), col.names=c("OTU", "Size", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus"), skip=1)
+
+taxa <- taxa[taxa$OTU %in% names(otu),]
+taxa.ab <- taxa[taxa$OTU %in% names(otu.ab), ]
+
+# clean up alpha
+alpha <- filter(alpha, label =="0.03" & method == "ave")
+alpha$label <- as.character(alpha$label)
+env.samp <- inner_join(env,samples, by="group")
+alpha.env <- inner_join(alpha, env.samp, by = "group")
+
+alpha.env$detail <- as.factor(
+  paste(alpha.env$NitrateLevel, alpha.env$Distance))
+levels(alpha.env$NitrateLevel)
+alpha.env$NitrateLevel <- factor(alpha.env$NitrateLevel, 
+                                 c("high", "med", "low"))
+
+plot(alpha$sobs, alpha$invsimpson)
+barplot(alpha.env$sobs, names.arg=alpha.env$labels, ylab="Species Observed", ylim=c(0,1600))
+barplot(alpha.env$invsimpson, names.arg=alpha.env$labels, ylab="Inverse-Simpson Index", ylim=c(0,100))
+
+#Make 1x2 plot
+par(mfrow=c(1,2))
+#Basic bar plot with the correct order of samples
+
+g1<-ggplot(data = alpha.env,aes(x=factor(labels), y=sobs, fill=Location))+geom_bar(stat="identity")+
+  theme_classic()+
+  #scale_y_discrete(limits=c(0,1500), breaks=c(0,500,1000,1500))+
+  scale_x_discrete(limits=c("DW-8O","DW-5G","DW-9G","DW-13G","DW-134G","DW-5O","DW-7O","DW-15O","IW-2","IW-3"))+
+  scale_y_continuous(limits=c(0,1500), expand = c(0,0)) +
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"), breaks=c("Inland","River","Farm"))+
+  labs(title="",  y="OTUs Observed", x = "")+
+  theme(legend.position="top")
+ # scale_fill_discrete(breaks=c("Inland","River","Farm"))
+ # scale_color_manual(values=alpha.env$Location, name="Well Location")
+
+g2<-ggplot(data = alpha.env,aes(x=factor(labels), y=invsimpson, fill=Location))+geom_bar(stat="identity")+
+  theme_classic()+
+  scale_y_continuous(limits=c(0,100), expand = c(0,0)) +
+  #scale_y_discrete(limits=c(0,1500), breaks=c(0,500,1000,1500))+
+  scale_x_discrete(limits=c("DW-8O","DW-5G","DW-9G","DW-13G","DW-134G","DW-5O","DW-7O","DW-15O","IW-2","IW-3"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"), breaks=c("Inland","River","Farm"))+
+  labs(title="",  y="Inverse-Simpson Index", x = "Well")+
+  theme(legend.position = "bottom") 
+
+#install.packages("gridExtra")
+library("gridExtra")
+grid.arrange(g1, g2, ncol = 1)
+
+bc <- parseDistanceDF("../OldLyme.trim.contigs.good.unique.good.filter.precluster.pick.pick.pick.opti_mcc.braycurtis.0.03.lt.ave.dist")
+
+levels(factor(alpha.env$NitrateLevel))
+Nitrate.col <- c("high" = "red","med"="yellow", "low"="green")
+well.group <- c("1"="16", "2"="15", "3"="17")
+
+#well.group <- c("1"="21", "2"="22", "3"="24")
+
+
+# bray curtis
+bc.nms <- metaMDS(as.dist(bc), k=2, trymin=50, trymax=500, wascores=F)
+
+ordiplot(bc.nms)
+### code for plotting an ordination generated by vegan
+bc.points <- data.frame(bc.nms$points)
+
+
+x <- max(bc.points$MDS1)/1.5
+y <- min(bc.points$MDS2)
+#Colored with labels
+bc.plot <- ggplot(bc.points, aes(x=MDS1, y=MDS2,label=rownames(jc)))
+#alpha.env$G is groups 1-3. Above those values are associated with other numbers in well.groups, which assign the correct symbol
+bc.plot<-
+  
+  bc.plot + 
+  geom_point(aes(shape=as.character(alpha.env$G)),  size=5, show.legend=TRUE)+
+  #Shows nitrate concentration
+  #geom_point(aes(color=factor(alpha.env$NitrateLevel), shape=as.character(alpha.env$G)),  size=3.5)+
+  
+#bc.plot<-bc.plot + geom_point(aes(fill=factor(alpha.env$NitrateLevel), shape=as.character(alpha.env$G)),  size=5)+  
+  #geom_point(aes(fill=factor(alpha.env$NitrateLevel), colour="black", shape=as.character(alpha.env$G)),  size=5)+
+  #scale_shape_identity()+
+  #bc.plot + geom_point(size=6)+
+  coord_fixed()+ #keeps axes scaled
+  theme_bw()+
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"))+
+  scale_color_manual(values=Nitrate.col, name="Nitrate", labels=c("< 5 mg/L", "5-10 mg/L", "> 10 mg/L"))+
+  scale_shape_manual(values=as.integer(well.group),labels=c("Inland", "River", "Farm"), name="Well Location")+
+  #guides(colour = guide_legend(override.aes = list(alpha = 1)))+
+  #scale_fill_manual(values=c("red", "yellow", "green"), name="Nitrate Conc.", labels=c("< 5 mg/L", "5-10 mg/L", "> 10 mg/L"))+
+  #scale_colour_manual(values=c("black","black","black"), name="Nitrate Conc.", labels=c("< 5 mg/L", "5-10 mg/L", "> 10 mg/L"))+
+  #guides(fill="legend")+
+  guides(color = guide_legend(order=2), shape = guide_legend(order=1))+
+  geom_text(label = alpha.env$labels, hjust = 0, nudge_x = -0.13, nudge_y = 0.04, size=4)+
+  annotate("text", -0.55, 0.55, label=paste("stress = ", round(bc.nms$stress, digits = 3)), size=3.5)+
+  labs(x="NMDS 1", y="NMDS 2")+
+  #ggtitle("Bray-Curtis NMDS")+
+  #theme(plot.title = element_text(hjust = 0.5))+
+  theme(axis.text=element_text(size=10), axis.title=element_text(size=12), plot.title = element_text(hjust = 0.5, size=24),
+        legend.title=element_text(size=10), legend.text=element_text(size=9))+
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01))+
+  geom_hline(yintercept=0, linetype="dashed")+geom_vline(xintercept=0, linetype="dashed")+
+  #stat_ellipse(aes(group=alpha.env$Location))
+  ggsave(file="bc.site.nms.png",width=8, height=7, units="in", dpi=300 )
+print(bc.plot)
+dev.off()
+
+##### Hypothesis test of betdiversity Permanova
+
+permanova.bc <- adonis(as.dist(bc)~alpha.env$Location, perm=1000, rm.na=TRUE)
+permanova.bc
+
